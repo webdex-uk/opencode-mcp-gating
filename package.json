@@ -1,0 +1,20 @@
+{
+  "name": "opencode-mcp-gating",
+  "version": "0.1.0",
+  "description": "OpenCode V2 plugin for per-repo MCP gating — enable or disable configured MCP servers from a repo-local marker file. Zero dependencies.",
+  "type": "module",
+  "main": "plugin.ts",
+  "exports": {
+    ".": "./plugin.ts"
+  },
+  "files": [
+    "plugin.ts"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "mcp"
+  ],
+  "dependencies": {}
+}
