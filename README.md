@@ -56,7 +56,7 @@ Rules:
 - No marker or invalid JSON ⇒ every MCP server stays disabled (fail-closed). Invalid JSON logs a `console.warn`.
 - Names that do not match a configured server log a `console.warn` and are ignored.
 - The marker is read from the project canonical checkout first, then from the working directory.
-- Restart OpenCode (or run `opencode reload`) after changing the marker.
+- The marker is re-read continuously: creating, editing, or deleting it takes effect within ~1–2 seconds — no restart and no `opencode reload` needed. The fail-closed rules above apply to every re-read too.
 
 ## Recommended base config
 
@@ -81,11 +81,11 @@ Keep the `mcp.servers` form: the flat V1 `mcp: { "<name>": { ... } }` form silen
 
 ## How it works
 
-At plugin load (once per project location), the plugin reads the marker once, then runs a synchronous `ctx.mcp.transform` callback that lists the configured servers and sets `disabled` on each one. OpenCode reconciles the MCP server lifecycle from the transformed configuration.
+At plugin load (once per project location) the plugin registers a synchronous `ctx.mcp.transform` callback that re-reads the marker on every replay, lists the configured servers and sets `disabled` on each one. It also polls the marker path (and its parent directory, so a marker created after boot is caught even when the directory did not exist yet) with `fs.watchFile`; when the marker is created, changed, or deleted, a debounced `ctx.mcp.reload()` runs, which makes OpenCode reconcile the MCP server lifecycle from the freshly transformed configuration. The cleanup function returned from `setup` stops the watches on plugin unload.
 
 ## Compatibility
 
-Tested against OpenCode v2.0.29. Uses the V2 plugin API: `ctx.location`, `ctx.options`, and `ctx.mcp.transform`.
+Tested against OpenCode v2.0.29. Uses the V2 plugin API: `ctx.location`, `ctx.options`, `ctx.mcp.transform`, and `ctx.mcp.reload`.
 
 ## License
 
