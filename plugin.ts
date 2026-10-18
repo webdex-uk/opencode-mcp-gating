@@ -2,7 +2,9 @@
 // V2 runs `setup(ctx)`: read a repo-local marker file on every transform replay, then rewrite
 // `disabled` on every configured MCP server so only the marker's names come up (fail-closed
 // without a marker). A poll watcher re-reads the marker and reloads MCP when it changes.
-// The V1 `server` half is an empty hook map so shared config repos stay V1-loadable (>= 1.18.29).
+// The V1 `server` half is an empty hook map so shared config repos stay V1-loadable (>= 1.18.29);
+// if a V1 host also invokes `setup`, the missing `ctx.mcp.transform` is detected and the plugin
+// exits silently — no logs, no watchers.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -18,7 +20,10 @@ interface MarkerResult {
 
 /** Project dirs the marker is resolved against: canonical checkout first, then working directory. */
 function markerDirs(ctx: any): string[] {
-  const dirs = [ctx?.location?.project?.canonical, ctx?.location?.directory].filter(
+  const dirs = [
+    ctx?.location?.project?.canonical,
+    ctx?.location?.directory,
+  ].filter(
     (dir: unknown): dir is string => typeof dir === "string" && dir.length > 0,
   );
   return [...new Set(dirs)];
@@ -26,7 +31,9 @@ function markerDirs(ctx: any): string[] {
 
 /** Configured marker path, relative to each project dir. */
 function markerOption(ctx: any): string {
-  return typeof ctx?.options?.marker === "string" && ctx.options.marker ? ctx.options.marker : DEFAULT_MARKER;
+  return typeof ctx?.options?.marker === "string" && ctx.options.marker
+    ? ctx.options.marker
+    : DEFAULT_MARKER;
 }
 
 /** Marker is `["jira","github"]` or `{"servers":["jira","github"]}`; canonical checkout first. */
@@ -38,8 +45,17 @@ function readMarker(ctx: any): MarkerResult {
     if (!fs.existsSync(file)) continue;
     try {
       const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-      const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.servers) ? parsed.servers : [];
-      return { file, names: list.filter((name: unknown): name is string => typeof name === "string") };
+      const list = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.servers)
+          ? parsed.servers
+          : [];
+      return {
+        file,
+        names: list.filter(
+          (name: unknown): name is string => typeof name === "string",
+        ),
+      };
     } catch (error) {
       console.warn(
         `[${PLUGIN_ID}] invalid marker at ${file}: ${error instanceof Error ? error.message : String(error)}`,
@@ -52,9 +68,14 @@ function readMarker(ctx: any): MarkerResult {
 
 /** True when a watcher tick saw a real change (created, edited, removed) rather than a zeroed ENOENT stat. */
 function statChanged(curr: fs.Stats, prev: fs.Stats): boolean {
-  const zeroed = (stats: fs.Stats) => stats.mtimeMs === 0 && stats.size === 0 && stats.ino === 0;
+  const zeroed = (stats: fs.Stats) =>
+    stats.mtimeMs === 0 && stats.size === 0 && stats.ino === 0;
   if (zeroed(curr) && zeroed(prev)) return false;
-  return curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size || curr.ino !== prev.ino;
+  return (
+    curr.mtimeMs !== prev.mtimeMs ||
+    curr.size !== prev.size ||
+    curr.ino !== prev.ino
+  );
 }
 
 /** Poll the marker path (and its parent dir, so a marker created after boot is caught even when the
@@ -77,7 +98,8 @@ function watchMarker(ctx: any): () => void {
       timer = null;
       try {
         const reloaded = ctx?.mcp?.reload?.();
-        if (reloaded && typeof reloaded.catch === "function") reloaded.catch(() => {});
+        if (reloaded && typeof reloaded.catch === "function")
+          reloaded.catch(() => {});
       } catch {
         // a failed reload must never break the session
       }
@@ -87,7 +109,11 @@ function watchMarker(ctx: any): () => void {
 
   for (const target of targets) {
     try {
-      fs.watchFile(target, { interval: WATCH_INTERVAL_MS, persistent: false }, onChange);
+      fs.watchFile(
+        target,
+        { interval: WATCH_INTERVAL_MS, persistent: false },
+        onChange,
+      );
     } catch {
       // an unwatchable path must never break plugin setup
     }
@@ -114,10 +140,16 @@ export default {
    * marker on every replay and sets `disabled` per configured server; marker names missing from
    * `mcp.servers` warn and are ignored. Returns a cleanup fn so plugin unload stops the watches. */
   setup: async (ctx: any) => {
+    // OpenCode 1.x may load this object and invoke `setup`, but it has no V2 MCP API.
+    // Skip silently: no transform, no watchers, no console output.
+    if (typeof ctx?.mcp?.transform !== "function") return () => {};
+
     try {
       await ctx.mcp.transform((editor: any) => {
         const { names } = readMarker(ctx);
-        const all: string[] = editor.list().map(([name]: [string, unknown]) => name);
+        const all: string[] = editor
+          .list()
+          .map(([name]: [string, unknown]) => name);
         const desired = new Set<string>(names ?? []);
         for (const name of all) {
           editor.update(name, (server: any) => {
@@ -125,7 +157,8 @@ export default {
           });
         }
         for (const name of desired) {
-          if (!all.includes(name)) console.warn(`[${PLUGIN_ID}] marker lists unknown server: ${name}`);
+          if (!all.includes(name))
+            console.warn(`[${PLUGIN_ID}] marker lists unknown server: ${name}`);
         }
       });
     } catch (error) {

@@ -9,7 +9,7 @@ OpenCode 2 dropped the V1 "enabled marker" MCP pattern. During config normalizat
 ## Requirements
 
 - OpenCode 2.x for the gating behavior.
-- On OpenCode 1.x (≥ 1.18.29), the plugin loads as a no-op (`server` returns an empty hook map), so a shared config repo stays V1-safe.
+- On OpenCode 1.x (≥ 1.18.29), the plugin is a fully silent no-op: `server` returns an empty hook map and, even if the host invokes `setup`, it returns immediately with zero console output (there is no `ctx.mcp.transform` on V1).
 
 ## Install
 
@@ -17,7 +17,7 @@ Add the package to the `plugins` array in `opencode.json(c)` (the V2 spelling; t
 
 ```jsonc
 {
-  "plugins": ["github:webdex-uk/opencode-mcp-gating"]
+  "plugins": ["github:webdex-uk/opencode-mcp-gating"],
 }
 ```
 
@@ -28,9 +28,9 @@ With plugin options, use the object form:
   "plugins": [
     {
       "package": "github:webdex-uk/opencode-mcp-gating",
-      "options": { "marker": ".config/mcp-servers.json" }
-    }
-  ]
+      "options": { "marker": ".config/mcp-servers.json" },
+    },
+  ],
 }
 ```
 
@@ -66,10 +66,18 @@ Define all servers under `mcp.servers` with `"disabled": true`, so this plugin i
 {
   "mcp": {
     "servers": {
-      "jira": { "type": "remote", "url": "https://mcp.atlassian.com/v1/mcp/authv2", "disabled": true },
-      "github": { "type": "remote", "url": "https://api.githubcopilot.com/mcp/", "disabled": true }
-    }
-  }
+      "jira": {
+        "type": "remote",
+        "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+        "disabled": true,
+      },
+      "github": {
+        "type": "remote",
+        "url": "https://api.githubcopilot.com/mcp/",
+        "disabled": true,
+      },
+    },
+  },
 }
 ```
 
@@ -81,7 +89,7 @@ Keep the `mcp.servers` form: the flat V1 `mcp: { "<name>": { ... } }` form silen
 
 ## How it works
 
-At plugin load (once per project location) the plugin registers a synchronous `ctx.mcp.transform` callback that re-reads the marker on every replay, lists the configured servers and sets `disabled` on each one. It also polls the marker path (and its parent directory, so a marker created after boot is caught even when the directory did not exist yet) with `fs.watchFile`; when the marker is created, changed, or deleted, a debounced `ctx.mcp.reload()` runs, which makes OpenCode reconcile the MCP server lifecycle from the freshly transformed configuration. The cleanup function returned from `setup` stops the watches on plugin unload.
+At plugin load (once per project location) the plugin registers a synchronous `ctx.mcp.transform` callback that re-reads the marker on every replay, lists the configured servers and sets `disabled` on each one. On a V1 host, where `ctx.mcp` does not exist, `setup` returns immediately and stays silent. It also polls the marker path (and its parent directory, so a marker created after boot is caught even when the directory did not exist yet) with `fs.watchFile`; when the marker is created, changed, or deleted, a debounced `ctx.mcp.reload()` runs, which makes OpenCode reconcile the MCP server lifecycle from the freshly transformed configuration. The cleanup function returned from `setup` stops the watches on plugin unload.
 
 ## Compatibility
 
